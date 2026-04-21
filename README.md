@@ -139,6 +139,125 @@ ORDER  BY total_notional_usd DESC;
 
 You should see ~50K trades distributed across all 11 sectors.
 
+## Create Ontology in Fabric IQ
+
+Once tables are loaded into the Lakehouse, model them as a business ontology
+in **Fabric IQ** to enable Copilot Q&A, semantic search, and reusable
+business definitions across reports.
+
+> Fabric IQ ontology authoring is accessed from your workspace's **OneLake
+> catalog → Ontology** (or **Fabric IQ Studio** in some tenants). Menu names
+> may vary by tenant rollout.
+
+### Concepts (Classes)
+
+| Concept | Backing Table / Column | Description |
+|---|---|---|
+| **Security** | `securities` | Tradable financial instrument |
+| **Sector** | `securities.sector` (distinct values) | GICS-style sector taxonomy |
+| **Industry** | `securities.industry` (distinct values) | Sub-classification of Sector |
+| **Exchange** | `securities.exchange` (distinct values) | Listing venue |
+| **Client** | `clients` | Counterparty |
+| **Account** | `accounts` | Brokerage/custody account |
+| **Trader** | `traders` | Internal trader |
+| **Desk** | `traders.desk` (distinct values) | Trading desk grouping |
+| **Trade** | `trades` | Executed transaction (event) |
+| **Quote** | `market_quotes` | Bid/ask snapshot (event) |
+| **Position** | `positions` | Holding snapshot (state) |
+| **PriceObservation** | `eod_prices` | Daily OHLCV record |
+
+### Relationships (Object Properties)
+
+| Relationship | From → To | Backing FK | Cardinality |
+|---|---|---|---|
+| `belongsToSector` | Security → Sector | `securities.sector` | many-to-one |
+| `inIndustry` | Security → Industry | `securities.industry` | many-to-one |
+| `listedOn` | Security → Exchange | `securities.exchange` | many-to-one |
+| `owns` | Client → Account | `accounts.client_id` | one-to-many |
+| `worksOnDesk` | Trader → Desk | `traders.desk` | many-to-one |
+| `executedBy` | Trade → Trader | `trades.trader_id` | many-to-one |
+| `executedFor` | Trade → Account | `trades.account_id` | many-to-one |
+| `tradedSecurity` | Trade → Security | `trades.symbol` | many-to-one |
+| `quotedSecurity` | Quote → Security | `market_quotes.symbol` | many-to-one |
+| `holdsSecurity` | Position → Security | `positions.symbol` | many-to-one |
+| `inAccount` | Position → Account | `positions.account_id` | many-to-one |
+| `pricedSecurity` | PriceObservation → Security | `eod_prices.symbol` | many-to-one |
+| `tradesFor` *(derived)* | Trader → Client | via `trades` → `accounts` | many-to-many |
+| `hasExposureTo` *(derived)* | Client → Sector | via `positions` → `securities` | many-to-many |
+
+### Attributes — mark as Measure / Time
+
+| Concept | Attribute | Tag |
+|---|---|---|
+| Client | `aum_usd` | Measure |
+| Trade | `quantity`, `price`, `notional` | Measure |
+| Trade | `trade_ts` | Time |
+| Position | `quantity`, `market_value_usd`, `unrealized_pnl_usd` | Measure |
+| Position | `as_of_date` | Time |
+| Quote | `bid`, `ask`, `bid_size`, `ask_size` | Measure |
+| Quote | `quote_ts` | Time |
+| PriceObservation | `open`, `high`, `low`, `close`, `volume` | Measure |
+| PriceObservation | `trade_date` | Time |
+
+**Derived measures to add:**
+- `Quote.spread = ask - bid`
+- `Position.weight_pct = market_value_usd / SUM(market_value_usd) OVER (account_id)`
+
+### Hierarchies
+
+| Hierarchy | Levels |
+|---|---|
+| **Instrument** | Sector → Industry → Security |
+| **Geography** | Region → Country (map: US/CA → AMER · GB/DE/FR/CH/NL → EMEA · JP/HK/SG/AU/IN → APAC · BR → LATAM) |
+| **Org** | Region → Desk → Trader |
+| **Time** | Year → Quarter → Month → Date (apply to `trade_ts`, `quote_ts`, `as_of_date`, `trade_date`) |
+
+### Synonyms (improves Copilot natural-language Q&A)
+
+| Concept / Attribute | Synonyms |
+|---|---|
+| Security | instrument, ticker, stock, equity |
+| Trade | execution, fill, transaction |
+| `notional` | trade value, gross value, dollar volume |
+| Position | holding, inventory |
+| Client | counterparty, customer, account holder |
+| `aum_usd` | assets under management, AUM |
+
+### Authoring Steps in Fabric IQ
+
+1. **Open Fabric IQ** in your workspace → **+ New ontology** → name it
+   `capital_markets_ontology`.
+2. **Bind data source** → select your Lakehouse → choose all 8 Delta tables.
+3. **Add concepts** — for each row in the *Concepts* table above:
+   click **+ Add concept** → set the **backing table** → pick the **business
+   key** (`symbol`, `client_id`, `account_id`, `trader_id`, `trade_id`).
+4. **Promote derived concepts** — for `Sector`, `Industry`, `Exchange`,
+   `Desk`: **+ Add concept** → backing **column** of the parent table
+   (distinct values).
+5. **Create relationships** — for each row in the *Relationships* table:
+   **+ Add relationship** → choose *from concept*, *to concept*, *FK
+   column*, *cardinality*.
+6. **Tag measures & dates** — open each concept → set **Measure** /
+   **Time** tags per the *Attributes* table.
+7. **Build hierarchies** — concept → **+ Hierarchy** → add levels per the
+   *Hierarchies* table.
+8. **Add synonyms** — concept/attribute → **Synonyms** → paste from list.
+9. **Add derived relationships** (`tradesFor`, `hasExposureTo`) as
+   **calculated relationships** through bridge tables.
+10. **Validate & Publish** — run the built-in validator → **Publish**.
+    The ontology is now queryable by Copilot in Fabric and consumable by
+    Power BI semantic models.
+
+### Verify the Ontology
+
+Try these natural-language questions in Copilot once published:
+
+- *"Which sectors had the highest notional traded last week?"*
+- *"Show me top 10 clients by AUM in EMEA."*
+- *"Which trader has the largest exposure to Technology?"*
+- *"What is the average bid-ask spread for XNAS-listed securities today?"*
+- *"List unrealized PnL by client and sector."*
+
 ## Next Steps After Loading
 
 1. **Define relationships** in the Lakehouse SQL endpoint default semantic model
