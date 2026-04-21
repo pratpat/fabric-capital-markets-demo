@@ -73,30 +73,81 @@ python generate_data.py --scale medium --out data
 python generate_data.py --scale large  --out data
 ```
 
-## Loading into Microsoft Fabric
+## Onboarding — Load into Microsoft Fabric Lakehouse
 
-### Option 1 — OneLake File Explorer (drag & drop)
-1. Install OneLake file explorer for Windows.
-2. Drag the `data/` folder into your Lakehouse `Files/raw/` location.
+> Prerequisite: a Fabric workspace with a Lakehouse (create one via
+> **Workspace → + New → Lakehouse**).
 
-### Option 2 — Fabric Notebook (PySpark → Delta tables)
+Pick **one** of the four options below.
+
+### Option 1 — OneLake File Explorer (drag & drop) — easiest
+1. Install **[OneLake File Explorer for Windows](https://www.microsoft.com/en-us/download/details.aspx?id=105222)**.
+2. Sign in with your Fabric account. Your Lakehouse appears as a folder in Windows Explorer.
+3. Drag `data/` from this repo into `<Workspace>\<Lakehouse>.Lakehouse\Files\raw\`.
+4. In the Fabric portal: **Lakehouse → Files → raw** → right-click each CSV → **Load to Tables → New table**.
+
+### Option 2 — Upload via the Fabric portal
+1. Open your Lakehouse in Fabric.
+2. **Files → New folder** → name it `raw`.
+3. **Upload → Upload files** → select all 8 CSVs from `data/`.
+4. Right-click each file → **Load to Tables → New table**.
+
+### Option 3 — PySpark Notebook (recommended; reproducible & typed) ⭐
+1. Fabric portal → **+ New → Notebook**.
+2. In the notebook, click **Add Lakehouse** (left pane) → select your Lakehouse.
+3. Ensure the CSVs are in `Files/raw/` (use Option 1 or 2 to upload them).
+4. **Import notebook** → upload [`notebooks/01_load_csv_to_delta.ipynb`](notebooks/01_load_csv_to_delta.ipynb).
+5. **Run all** — creates 8 Delta tables with proper schemas and runs a sanity-check query.
+
+### Option 4 — Pull straight from GitHub (no upload step)
+Run inside a Fabric notebook attached to your Lakehouse:
 
 ```python
-tables = ["securities","clients","accounts","traders",
-          "eod_prices","trades","market_quotes","positions"]
+import requests, os
+BASE = "https://raw.githubusercontent.com/pratpat/fabric-capital-markets-demo/main/data"
+files = ["securities","clients","accounts","traders",
+         "eod_prices","trades","market_quotes","positions"]
 
-for t in tables:
-    (spark.read
-        .option("header", True)
-        .option("inferSchema", True)
-        .csv(f"Files/raw/{t}.csv")
-        .write.mode("overwrite")
-        .saveAsTable(t))
+local = "/lakehouse/default/Files/raw"
+os.makedirs(local, exist_ok=True)
+for f in files:
+    r = requests.get(f"{BASE}/{f}.csv"); r.raise_for_status()
+    open(f"{local}/{f}.csv", "wb").write(r.content)
+    print(f"downloaded {f}.csv")
 ```
 
-### Option 3 — Fabric Data Pipeline
-Use a **Copy activity** with the CSV files as source and Lakehouse table as
-destination. Recommended for the `large` scale.
+Then execute the load cell from [`notebooks/01_load_csv_to_delta.ipynb`](notebooks/01_load_csv_to_delta.ipynb).
+
+### Option 5 — Fabric Data Pipeline
+For `medium` / `large` scales, use a **Copy data** activity:
+- Source: HTTP / GitHub raw URLs (or uploaded files in OneLake)
+- Sink: Lakehouse table
+
+## Verify the Load
+
+After loading, run in the Lakehouse SQL endpoint or a notebook:
+
+```sql
+SELECT s.sector,
+       COUNT(*)              AS trade_count,
+       ROUND(SUM(t.notional),2) AS total_notional_usd
+FROM   trades t
+JOIN   securities s ON s.symbol = t.symbol
+GROUP  BY s.sector
+ORDER  BY total_notional_usd DESC;
+```
+
+You should see ~50K trades distributed across all 11 sectors.
+
+## Next Steps After Loading
+
+1. **Define relationships** in the Lakehouse SQL endpoint default semantic model
+   (Model view → drag FK columns onto PK columns) — see [Foreign Keys](#foreign-keys) above.
+2. **Build a Direct Lake Power BI report** on top of the semantic model.
+3. **Stream `market_quotes`** through an Eventstream → Eventhouse for the
+   real-time analytics demo.
+4. **Add governance** — apply Purview sensitivity labels to `clients` (PII)
+   and `trades` (MNPI).
 
 ## Suggested Demo Scenarios
 
