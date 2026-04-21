@@ -1,0 +1,17 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated CSV data (large; reproducible via generate_data.py)
+data/*.csv
+!data/.gitkeep
