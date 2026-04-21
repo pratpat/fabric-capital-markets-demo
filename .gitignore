@@ -12,6 +12,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Generated CSV data (large; reproducible via generate_data.py)
-data/*.csv
-!data/.gitkeep
+# Generated CSV data: small-scale committed; medium/large excluded by size
+# (re-run `python generate_data.py --scale medium|large` to regenerate)
+
